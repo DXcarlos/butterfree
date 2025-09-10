@@ -11,20 +11,23 @@ class DeltaConfig(AbstractWriteConfig):
     Attributes:
         database: Target database name for the Delta table.
         table: Target table name for the Delta table.
-        merge_on: List of columns to use as merge keys.
+        merge_on: List of columns to use as merge keys. Optional when using replace
+            operations instead of merge operations.
         when_not_matched_insert: Optional condition for insert operations.
         when_matched_update: Optional condition for update operations.
         when_matched_delete: Optional condition for delete operations.
+        replace_where: Optional condition for replace operations using replaceWhere.
     """
 
     def __init__(
         self,
         database: str,
         table: str,
-        merge_on: List[str],
+        merge_on: Optional[List[str]] = None,
         when_not_matched_insert: Optional[str] = None,
         when_matched_update: Optional[str] = None,
         when_matched_delete: Optional[str] = None,
+        replace_where: Optional[str] = None,
     ):
         self.database = database
         self.table = table
@@ -32,6 +35,7 @@ class DeltaConfig(AbstractWriteConfig):
         self.when_not_matched_insert = when_not_matched_insert
         self.when_matched_update = when_matched_update
         self.when_matched_delete = when_matched_delete
+        self.replace_where = replace_where
 
     @property
     def database(self) -> str:
@@ -56,14 +60,15 @@ class DeltaConfig(AbstractWriteConfig):
         self.__table = value
 
     @property
-    def merge_on(self) -> List[str]:
+    def merge_on(self) -> Optional[List[str]]:
         """List of columns to use as merge keys."""
         return self.__merge_on
 
     @merge_on.setter
-    def merge_on(self, value: List[str]) -> None:
-        if not value:
-            raise ValueError("Config 'merge_on' cannot be empty.")
+    def merge_on(self, value: Optional[List[str]]) -> None:
+        # Only validate if not None
+        if value is not None and not value:
+            raise ValueError("Config 'merge_on' cannot be empty if provided.")
         self.__merge_on = value
 
     @property
@@ -102,6 +107,15 @@ class DeltaConfig(AbstractWriteConfig):
     @when_matched_delete.setter
     def when_matched_delete(self, value: Optional[str]) -> None:
         self.__when_matched_delete = value
+
+    @property
+    def replace_where(self) -> Optional[str]:
+        """Condition for replace operations using replaceWhere."""
+        return self.__replace_where
+
+    @replace_where.setter
+    def replace_where(self, value: Optional[str]) -> None:
+        self.__replace_where = value
 
     def get_options(self, key: str) -> Dict[str, Any]:
         """Get options for Delta Lake operations.
