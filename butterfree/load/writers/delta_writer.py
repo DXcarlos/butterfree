@@ -5,6 +5,7 @@ from delta.tables import DeltaTable
 from pyspark.sql.dataframe import DataFrame
 
 from butterfree.clients import SparkClient
+from butterfree.constants.columns import TIMESTAMP_COLUMN
 
 logger = logging.getLogger(__name__)
 
@@ -181,3 +182,114 @@ class DeltaWriter:
             logger.info(f"Running optimize with command {command}...")
             client.conn.sql(command)
             logger.info(f"Optimize successful for table {table}.")
+
+    @staticmethod
+    def replace(
+        client: SparkClient,
+        database: str,
+        table: str,
+        source_df: DataFrame,
+        replace_where: Optional[str] = None,
+        auto_date_filter: bool = False,
+    ) -> None:
+        """Replace data in a Delta table using the replaceWhere option.
+
+        This method is an alternative to merge operations when you need to
+        replace data in a Delta table based on a condition. It's typically
+        faster than merge operations for large datasets when you don't need
+        the fine-grained control that merge provides.
+
+        Args:
+            client: SparkClient instance with an active Spark connection.
+            database: Target database name.
+            table: Target table name.
+            source_df: DataFrame containing the data to write.
+            replace_where: Optional condition for the replaceWhere option.
+                For example:
+                    "start_date >= '2017-01-01' AND end_date <= '2017-01-31'"
+                If not provided and auto_date_filter is False, all data in the table
+                will be replaced.
+            auto_date_filter: If True and replace_where is None, automatically
+                generate a filter based on min/max dates in the dataframe using the
+                TIMESTAMP_COLUMN constant.
+
+        Example:
+            With explicit replace_where:
+            >>> DeltaWriter.replace(
+            ...     client=spark_client,
+            ...     database="my_database",
+            ...     table="my_table",
+            ...     source_df=my_dataframe,
+            ...     replace_where=(
+            ...         "date_column >= '2023-01-01' AND "
+            ...         "date_column <= '2023-01-31'"
+            ...     )
+            ... )
+
+            With auto_date_filter:
+            >>> DeltaWriter.replace(
+            ...     client=spark_client,
+            ...     database="my_database",
+            ...     table="my_table",
+            ...     source_df=my_dataframe,
+            ...     auto_date_filter=True
+            ... )
+        """
+        full_table_name = DeltaWriter._get_full_table_name(table, database)
+
+        table_exists = client.conn.catalog.tableExists(full_table_name)
+
+        if table_exists:
+            pd_df = client.conn.sql(
+                f"DESCRIBE TABLE EXTENDED {full_table_name}"
+            ).toPandas()
+            provider = (
+                pd_df.reset_index()
+                .groupby(["col_name"])["data_type"]
+                .aggregate("first")
+                .Provider
+            )
+            table_is_delta = provider.lower() == "delta"
+
+            if not table_is_delta:
+                DeltaWriter()._convert_to_delta(client, full_table_name)
+
+        # For schema evolution
+        client.conn.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+
+        # Auto-generate replace_where if requested and not provided
+        if replace_where is None and auto_date_filter:
+            from pyspark.sql import functions as F
+
+            # Get min and max dates from the dataframe
+            min_max_dates = source_df.select(
+                F.min(TIMESTAMP_COLUMN).alias("min_date"),
+                F.max(TIMESTAMP_COLUMN).alias("max_date"),
+            ).collect()[0]
+
+            min_date = min_max_dates["min_date"]
+            max_date = min_max_dates["max_date"]
+
+            if min_date is not None and max_date is not None:
+                replace_where = (
+                    f"{TIMESTAMP_COLUMN} >= '{min_date}' AND "
+                    f"{TIMESTAMP_COLUMN} <= '{max_date}'"
+                )
+                logger.info(f"Auto-generated replace filter: {replace_where}")
+
+        # Prepare write options
+        write_options = {}
+        if replace_where:
+            write_options["replaceWhere"] = replace_where
+            logger.info(f"Replacing data in {full_table_name} where {replace_where}")
+        else:
+            logger.info(f"Replacing all data in {full_table_name}")
+
+        # Write the dataframe to the table with overwrite mode
+        source_df.write.format("delta").mode("overwrite").options(
+            **write_options
+        ).saveAsTable(full_table_name)
+
+        logger.info(
+            f"Replace operation completed successfully for table {full_table_name}"
+        )

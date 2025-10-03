@@ -146,6 +146,8 @@ class HistoricalFeatureStoreWriter(Writer):
         feature_set: FeatureSet,
         dataframe: DataFrame,
         spark_client: SparkClient,
+        replace_where: Optional[str] = None,
+        auto_date_filter: bool = False,
     ) -> None:
         """Loads the data from a feature set into the Historical Feature Store.
 
@@ -153,12 +155,27 @@ class HistoricalFeatureStoreWriter(Writer):
             feature_set: object processed with feature_set informations.
             dataframe: spark dataframe containing data from a feature set.
             spark_client: client for spark connections with external services.
-            merge_on: when filled, the writing is an upsert in a Delta table.
+            replace_where: when filled, the writing uses replaceWhere instead of merge.
+                For example:
+                    "date_column >= '2023-01-01' AND date_column <= '2023-01-31'"
+                This is typically faster than merge operations for large datasets.
+            auto_date_filter: if True and replace_where is None, automatically
+                generate a filter based on min/max dates in the dataframe using the
+                TIMESTAMP_COLUMN constant. Only used when replace_where is None.
 
         If the debug_mode is set to True, a temporary table with a name in the format:
         historical_feature_store__{feature_set.name} will be created instead of writing
         to the real historical feature store.
 
+        The method supports three modes of operation:
+        1. Replace mode: When replace_where is provided, uses DeltaWriter.replace
+        2. Merge mode: When merge_on is provided, uses DeltaWriter.merge
+        3. Direct write: When neither replace_where nor merge_on is provided,
+           uses write_table
+
+        Replace mode is recommended for large datasets when you don't need the
+        fine-grained
+        control that merge provides.
         """
         dataframe = self._create_partitions(dataframe)
 
@@ -187,7 +204,16 @@ class HistoricalFeatureStoreWriter(Writer):
 
         s3_key = os.path.join("historical", feature_set.entity, feature_set.name)
 
-        if self.merge_on:
+        if replace_where is not None or auto_date_filter:
+            DeltaWriter.replace(
+                client=spark_client,
+                database=self.database,
+                table=feature_set.name,
+                source_df=dataframe,
+                replace_where=replace_where,
+                auto_date_filter=auto_date_filter,
+            )
+        elif self.merge_on:
             DeltaWriter.merge(
                 client=spark_client,
                 database=self.database,
