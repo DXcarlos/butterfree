@@ -59,6 +59,9 @@ class Window:
         mode: available modes to be used in time aggregations.
         window_definition: time ranges to be used in the windows, it can be second(s),
             minute(s), hour(s), day(s), week(s) and year(s),
+        use_short_name: if True, uses a shorter format for window names (e.g., "7d" 
+            instead of "over_7_days_rolling_windows"). Default is False for backward
+            compatibility.
 
     Use the static methods in :class:`Window` to create a :class:`WindowSpec`.
     """
@@ -72,22 +75,66 @@ class Window:
         order_by: Optional[Union[Column, str]] = None,
         mode: Optional[str] = None,
         slide: Optional[str] = None,
+        use_short_name: bool = False,
     ):
         self.partition_by = partition_by
         self.order_by = order_by or TIMESTAMP_COLUMN
         self.frame_boundaries = FrameBoundaries(mode, window_definition)
         self.slide = slide or self.DEFAULT_SLIDE_DURATION
+        self.use_short_name = use_short_name
 
     def get_name(self) -> str:
-        """Return window suffix name based on passed criteria."""
-        return "_".join(
-            [
-                "over",
-                f"{self.frame_boundaries.window_size}",
-                f"{self.frame_boundaries.window_unit}",
-                self.frame_boundaries.mode,
-            ]
-        )
+        """Return window suffix name based on passed criteria.
+        
+        This method can return two different formats for window names:
+        
+        1. When use_short_name=False (default): Returns the original format like 
+           "over_7_days_rolling_windows" for backward compatibility.
+        
+        2. When use_short_name=True: Returns a shorter format like "7d" to support
+           the requested format {name}__{aggregation_name}__{window}{unit}.
+        
+        Args:
+            None
+            
+        Returns:
+            str: The window name in either the original or short format
+        """
+        if not self.use_short_name:
+            # Return the original format for backward compatibility
+            return "_".join(
+                [
+                    "over",
+                    f"{self.frame_boundaries.window_size}",
+                    f"{self.frame_boundaries.window_unit}",
+                    self.frame_boundaries.mode,
+                ]
+            )
+        else:
+            # Return the shortened format: {window}{unit}
+            # Map time units to their short forms
+            unit_map = {
+                "second": "s",
+                "seconds": "s",
+                "minute": "mi",
+                "minutes": "mi",
+                "hour": "h",
+                "hours": "h",
+                "day": "d",
+                "days": "d",
+                "week": "w",
+                "weeks": "w",
+                "month": "m",
+                "months": "m",
+                "year": "y",
+                "years": "y",
+            }
+            
+            # Get the short form of the unit
+            unit = unit_map.get(self.frame_boundaries.window_unit, self.frame_boundaries.window_unit[0])
+            
+            # Return the shortened format: {window}{unit}
+            return f"{self.frame_boundaries.window_size}{unit}"
 
     def get(self) -> Any:
         """Defines a common window to be used both in time and rows windows."""
