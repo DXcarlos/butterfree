@@ -255,7 +255,7 @@ class DeltaWriter:
                 DeltaWriter()._convert_to_delta(client, full_table_name)
 
         # For schema evolution
-        client.conn.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+        client.conn.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "false")
 
         # Auto-generate replace_where if requested and not provided
         if replace_where is None and auto_date_filter:

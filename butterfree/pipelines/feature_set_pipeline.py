@@ -1,5 +1,6 @@
 """FeatureSetPipeline entity."""
 
+import logging
 from typing import List, Optional
 
 from butterfree.clients import SparkClient
@@ -8,6 +9,9 @@ from butterfree.extract import Source
 from butterfree.load import Sink
 from butterfree.metadata.feature_set_pipeline_metadata import FeatureSetPipelineMetadata
 from butterfree.transform.feature_set import FeatureSet
+
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureSetPipeline:
@@ -209,6 +213,9 @@ class FeatureSetPipeline:
         soon. Use only if strictly necessary.
 
         """
+        logger.info("Starting Feature Set Pipeline")
+
+        logger.info("Constructing Source DataFrame")
         dataframe = self.source.construct(
             client=self.spark_client,
             start_date=self.feature_set.define_start_date(start_date),
@@ -221,6 +228,7 @@ class FeatureSetPipeline:
                 dataframe, partition_by, order_by, num_processors
             )
 
+        logger.info("Constructing Feature Set")
         dataframe = self.feature_set.construct(
             dataframe=dataframe,
             client=self.spark_client,
@@ -229,6 +237,7 @@ class FeatureSetPipeline:
             num_processors=num_processors,
         )
 
+        logger.info("Loading data to sink")
         self.sink.flush(
             dataframe=dataframe,
             feature_set=self.feature_set,
