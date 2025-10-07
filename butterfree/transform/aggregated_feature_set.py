@@ -204,12 +204,29 @@ class AggregatedFeatureSet(FeatureSet):
         features: List[Feature],
         deduplicate_rows: bool = True,
         eager_evaluation: bool = True,
+        use_short_names: bool = False,
     ):
+        """Initialize an AggregatedFeatureSet.
+        
+        Args:
+            name: feature set name.
+            entity: business concept entity.
+            description: description of the feature set purpose.
+            keys: key features to define this feature set.
+            timestamp: timestamp feature to define this feature set.
+            features: features to compose the feature set.
+            deduplicate_rows: if True, will deduplicate rows based on keys and timestamp.
+            eager_evaluation: if True, will evaluate the feature set when it's created.
+            use_short_names: if True, uses a shorter format for feature column names
+                (e.g., "feature1__avg__7d" instead of "feature1__avg_over_7_days_rolling_windows").
+                Default is False for backward compatibility.
+        """
         self._windows: List[Window] = []
         self._pivot_column: Optional[str] = None
         self._pivot_values: Optional[List[Union[bool, float, int, str]]] = []
         self._distinct_subset: List[Any] = []
         self._distinct_keep: Optional[str] = None
+        self._use_short_names: bool = use_short_names
         super(AggregatedFeatureSet, self).__init__(
             name,
             entity,
@@ -268,12 +285,36 @@ class AggregatedFeatureSet(FeatureSet):
         feature_column: str,
         pivot_value: Optional[Union[float, str]] = None,
         window: Optional[Window] = None,
+        use_short_names: bool = False,
     ) -> str:
+        """Build the feature column name based on the feature column, pivot value, and window.
+        
+        This method can produce two different formats for feature column names:
+        
+        1. When use_short_names=False (default): Uses a single underscore between the base name
+           and window name, producing names like "feature1__avg_over_7_days_rolling_windows"
+           for backward compatibility.
+        
+        2. When use_short_names=True: Uses double underscores and a shorter window format,
+           producing names like "feature1__avg__7d" to support the requested format
+           {name}__{aggregation_name}__{window}{unit}.
+        
+        Args:
+            feature_column: The base feature column name
+            pivot_value: Optional pivot value to add to the name
+            window: Optional window to add to the name
+            use_short_names: If True, uses the shorter format with double underscores
+            
+        Returns:
+            The constructed feature column name
+        """
         base_name = feature_column
         if pivot_value is not None:
             base_name = f"{pivot_value}_{base_name}"
         if window is not None:
-            base_name = f"{base_name}_{window.get_name()}"
+            # Choose the appropriate separator based on the flag
+            separator = "__" if use_short_names else "_"
+            base_name = f"{base_name}{separator}{window.get_name()}"
 
         return base_name
 
@@ -287,7 +328,7 @@ class AggregatedFeatureSet(FeatureSet):
         pivot_values = self._pivot_values or [None]
         windows = self._windows or [None]
         feature_columns = [
-            self._build_feature_column_name(fc, pivot_value=pv, window=w)
+            self._build_feature_column_name(fc, pivot_value=pv, window=w, use_short_names=self._use_short_names)
             for pv, fc, w in itertools.product(pivot_values, base_columns, windows)
         ]
         return feature_columns
@@ -318,7 +359,15 @@ class AggregatedFeatureSet(FeatureSet):
     def with_windows(
         self, definitions: List[str], slide: Optional[str] = None
     ) -> "AggregatedFeatureSet":
-        """Create a list with windows defined."""
+        """Create a list with windows defined.
+        
+        Args:
+            definitions: List of window definitions (e.g., ["7 days", "30 days"]).
+            slide: Optional slide duration for the window.
+            
+        Returns:
+            The AggregatedFeatureSet with windows defined.
+        """
         self._windows = [
             Window(
                 partition_by=None,
@@ -326,6 +375,7 @@ class AggregatedFeatureSet(FeatureSet):
                 mode="rolling_windows",
                 window_definition=definition,
                 slide=slide,
+                use_short_name=self._use_short_names,
             )
             for definition in definitions
         ]
@@ -449,7 +499,7 @@ class AggregatedFeatureSet(FeatureSet):
         )
         pivot_values = self._pivot_values or [None]
         new_columns = [
-            self._build_feature_column_name(fc, pivot_value=pv, window=window)
+            self._build_feature_column_name(fc, pivot_value=pv, window=window, use_short_names=self._use_short_names)
             for pv, fc in itertools.product(pivot_values, base_columns)
         ]
 
@@ -500,7 +550,7 @@ class AggregatedFeatureSet(FeatureSet):
             )
             name = [
                 self._build_feature_column_name(
-                    function, pivot_value=pivot_value, window=window
+                    function, pivot_value=pivot_value, window=window, use_short_names=self._use_short_names
                 )
                 for pivot_value, function, window in combination
             ]
