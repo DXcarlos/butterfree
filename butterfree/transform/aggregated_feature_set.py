@@ -310,7 +310,9 @@ class AggregatedFeatureSet(FeatureSet):
         """
         base_name = feature_column
         if pivot_value is not None:
-            base_name = f"{pivot_value}_{base_name}"
+            # Clean the pivot value by replacing spaces with underscores
+            clean_pivot_value = str(pivot_value).replace(" ", "_")
+            base_name = f"{clean_pivot_value}_{base_name}"
         if window is not None:
             # Choose the appropriate separator based on the flag
             separator = "__" if use_short_names else "_"
