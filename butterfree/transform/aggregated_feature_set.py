@@ -1,6 +1,7 @@
 """AggregatedFeatureSet entity."""
 
 import itertools
+import re
 from datetime import datetime, timedelta
 from functools import reduce
 from typing import Any, Dict, List, Optional, Union
@@ -310,8 +311,8 @@ class AggregatedFeatureSet(FeatureSet):
         """
         base_name = feature_column
         if pivot_value is not None:
-            # Clean the pivot value by replacing spaces with underscores
-            clean_pivot_value = str(pivot_value).replace(" ", "_")
+            # Clean the pivot value by replacing any non-alphanumeric character with underscores
+            clean_pivot_value = re.sub(r"[^a-zA-Z0-9_]", "_", str(pivot_value))
             base_name = f"{clean_pivot_value}_{base_name}"
         if window is not None:
             # Choose the appropriate separator based on the flag
